@@ -1,0 +1,186 @@
+<?php
+
+
+
+/**
+ * @file
+ * myblock.module
+ */
+//описание функции показывает этот блок в спике всех блоков
+function load_more_ajax_block_info() {
+  // This example comes from node.module.
+  $blocks['load_more_ajax'] = array(
+    'info' => t('Load more ajax'),
+  );
+  return $blocks;
+}
+
+function load_more_ajax_theme(){
+  return array(
+    //main page about
+    'load_more_ajax' => array(
+      'template' => 'load_more_ajax',
+    ),
+  );
+}
+
+//функция отображения блока
+function load_more_ajax_block_view($delta = '') {
+  $block = array();
+  switch ($delta) {
+    case 'load_more_ajax':
+      drupal_add_js(drupal_get_path('module', 'load_more_ajax') .'/load_more_ajax.js', 'file');
+      $path = drupal_get_path_alias(current_path());
+
+      $data = get_nodes_ajax(0);
+      $block['content'] = theme('load_more_ajax', array('data' => $data));
+
+      break;
+  }
+  return $block;
+}
+
+
+/**
+ * Implements hook_menu().
+ */
+function load_more_ajax_menu() {
+  $items['load-more/%'] = array(
+    'page callback' => 'load_more_ajax_get_ajax', // Render HTML.
+    'page arguments' => array(1),
+    'type' => MENU_CALLBACK,
+    'access arguments' => array('access content'),
+  );
+  return $items;
+}
+
+function load_more_ajax_get_ajax($step) {
+
+  // This example loads a node and returns the teaser.
+  // You can return whatever you want, including forms.
+  $data = get_nodes_ajax($step);
+  $html = '';
+  if(!empty($data)):
+    foreach($data as $d):
+      $html .= '<div class="article-box">
+        <div class="col-xs-12 col-sm-4 pull-right">
+          <div class="row">
+            <a href="'.$d['path'].'">
+              <img typeof="foaf:Image" src="'.$d['image'].'" width="280" height="187" alt="'.$d['title'].'">
+            </a>
+          </div>
+        </div>
+        <div class="views-field views-field-title-1">
+          <span class="field-content">
+            <div class="col-xs-12 col-sm-8">
+              <h4 class="caption">
+                <a href="'.$d['path'].'">'.$d['title'].'</a>
+              </h4>
+              <div class="info_article">
+                <span>'.$d['created'].'</span>
+                <span><i class="fa fa-eye"></i> '.$d['view'].'</span>
+              </div>
+              <div>'.$d['body'].'</div>
+              <a href="/" class="readmore"><i class="fa fa-arrow-circle-left"></i>'.t('Read more').'</a>
+              <div class="author pull-left">
+                <a href="'.$d['author-path'].'">
+                  <img typeof="foaf:Image" src="'.$d['author-photo'].'" width="30" height="30" alt="">
+                </a>
+                <div class="author_inner">
+                  <div class="author_1">'.t('Author').'</div>
+                  <div class="author_name">'.$d['author-name'].'</div>
+                </div>
+              </div>
+            </div>
+            <div style="clear: both"></div>
+          </span>
+        </div>
+      </div>';
+    endforeach;
+  endif;
+
+  $html .= '<div id="ajax-target"></div>';
+
+  //$html .= '<div style="text-align: center"><div style="display: none;" class="ajax-progress ajax-progress-throbber"><div class="throbber">&nbsp;</div></div></div>';
+
+  drupal_json_output(array('status' => 0, 'data' => $html));
+  //return $html;
+}
+
+function get_nodes_ajax($step){
+
+  try {
+    $range = 7;
+    $step = $step * $range;
+
+    $data = array();
+
+    $result = db_select('node', 'n')
+      ->fields('n', array('nid',))
+      ->condition('n.type', 'news', '=')
+      ->condition('status', 0, '>')
+      ->orderBy('created', 'DESC')
+      ->range($step, $range)
+      ->execute();
+    //->fetchAssoc();
+    $nids = array();
+    while ($record = $result->fetchAssoc()) {
+      $nids[] = $record['nid'];
+      $node = node_load($record['nid']);
+      //dpm($node);
+      if (!empty($node)) {
+        $row = array();
+        //dpm($node);
+        $row['title'] = $node->title;
+        $row['path'] = drupal_get_path_alias('node/' . $node->nid);
+
+        $alter = array(
+          'max_length' => 300, //Integer
+          'ellipsis' => TRUE, //Boolean
+          'word_boundary' => TRUE, //Boolean
+          'html' => TRUE, //Boolean
+        );
+        $value = $node->body[LANGUAGE_NONE][0]['value'];
+
+        $allowed_tags = array('<p>', '<a>');
+
+        $row['body'] = drupal_html_to_text(views_trim_text($alter, $value), $allowed_tags);
+
+
+        $style = '280x187';
+        $uri = image_style_path($style, $node->field_image['und'][0]['uri']);
+        if (!file_exists($uri)) {
+          image_style_create_derivative(image_style_load($style), $node->field_image['und'][0]['uri'], $uri);
+        }
+
+        $row['image'] = file_create_url($uri);
+
+        $row['created'] = date('d', $node->created) . ' ' . t(date('F', $node->created)) . ' ' . date('Y', $node->created);
+
+        $view = statistics_get($node->nid);
+        $row['view'] = $view['totalcount'];
+
+        $user = user_load($node->uid);
+
+
+        $row['author-path'] = drupal_get_path_alias('user/' . $user->uid);
+
+        $row['author-photo'] = '/';
+        if (!empty($user->picture->uri)) {
+          $style = '112x112';
+          $uri = image_style_path($style, $node->field_image['und'][0]['uri']);
+          if (!file_exists($uri)) {
+            image_style_create_derivative(image_style_load($style), $node->field_image['und'][0]['uri'], $uri);
+          }
+          $row['author-photo'] = file_create_url($uri);
+        }
+        $row['author-name'] = ($user->field_name['und'][0]['value'] ? $user->field_name['und'][0]['value'] : $user->name);
+
+        $data[] = $row;
+      }
+    }
+    return $data;
+  }catch(Exception $e){
+    watchdog('load_more_ajax', 'Problem with ajax load more '.$e->getMessage().' '.$e->getCode());
+  }
+}

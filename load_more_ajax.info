@@ -1,0 +1,3 @@
+name = "Load more ajax"
+description = "block load more nodes"
+core = 7.x
